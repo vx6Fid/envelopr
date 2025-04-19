@@ -1,0 +1,18 @@
+# GraphQL schema example
+#
+# https://gqlgen.com/getting-started/
+
+type File {
+    id: ID!
+    name: String!
+    url: String!
+}
+
+type Query {
+    files: [File!]!
+    file(id: ID!): File
+}
+
+type Mutation {
+    uploadFile(name: String!, url: String!): File!
+}
