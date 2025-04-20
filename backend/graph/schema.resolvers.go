@@ -7,23 +7,585 @@ package graph
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
+	"github.com/google/uuid"
+	"github.com/vxF6id/envelopr/backend/auth"
 	"github.com/vxF6id/envelopr/backend/graph/model"
+	"golang.org/x/crypto/bcrypt"
 )
+
+// Login is the resolver for the login field.
+func (r *mutationResolver) Login(ctx context.Context, username string, password string) (*model.AuthPayload, error) {
+	var user model.User
+	var hashedPassword string
+
+	err := r.DB.QueryRow(`
+		SELECT id, username, created_at, password_hash
+		FROM users
+		WHERE username = $1`, username).Scan(
+		&user.ID,
+		&user.Username,
+		&user.CreatedAt,
+		&hashedPassword,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("invalid credentials")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password)); err != nil {
+		return nil, fmt.Errorf("invalid credentials")
+	}
+
+	// Generate the token without the expiration time (since GenerateToken no longer returns it)
+	token, err := auth.GenerateToken(user.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate token")
+	}
+
+	return &model.AuthPayload{
+		Token:        token, // The token generated for the user
+		TokenExpires: "",    // No longer return expiresAt, as it's not part of GenerateToken's return
+		User:         &user,
+	}, nil
+}
+
+// Register is the resolver for the register field.
+func (r *mutationResolver) Register(ctx context.Context, username string, password string) (*model.AuthPayload, error) {
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("failed to hash password")
+	}
+
+	id := uuid.New()
+	createdAt := time.Now()
+
+	_, err = r.DB.Exec(`
+		INSERT INTO users (id, username, created_at, password_hash)
+		VALUES ($1, $2, $3, $4)`,
+		id, username, createdAt, hashedPassword,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("username already exists")
+	}
+
+	user := &model.User{
+		ID:        id.String(),
+		Username:  username,
+		CreatedAt: createdAt.Format(time.RFC3339),
+	}
+
+	// Generate the token without the expiration time (since GenerateToken no longer returns it)
+	token, err := auth.GenerateToken(user.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate token")
+	}
+
+	return &model.AuthPayload{
+		Token:        token, // The token generated for the user
+		TokenExpires: "",    // No longer return expiresAt, as it's not part of GenerateToken's return
+		User:         user,
+	}, nil
+}
+
+// RefreshToken is the resolver for the refreshToken field.
+func (r *mutationResolver) RefreshToken(ctx context.Context) (*model.AuthPayload, error) {
+	userID, ok := auth.ForContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("authentication required")
+	}
+
+	var user model.User
+	err := r.DB.QueryRow(`
+        SELECT id, username, created_at
+        FROM users
+        WHERE id = $1`, userID).Scan(
+		&user.ID,
+		&user.Username,
+		&user.CreatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("user not found")
+	}
+
+	token, err := auth.GenerateToken(user.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate token")
+	}
+
+	return &model.AuthPayload{
+		Token:        token,
+		TokenExpires: "", // Remove if not using expiration
+		User:         &user,
+	}, nil
+}
 
 // UploadFile is the resolver for the uploadFile field.
 func (r *mutationResolver) UploadFile(ctx context.Context, name string, url string) (*model.File, error) {
-	panic(fmt.Errorf("not implemented: UploadFile - uploadFile"))
+	userID, ok := auth.ForContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("authentication required")
+	}
+
+	ownerUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user ID")
+	}
+
+	id := uuid.New()
+	createdAt := time.Now()
+
+	_, err = r.DB.Exec(`
+		INSERT INTO files (id, name, url, owner, created_at, is_public)
+		VALUES ($1, $2, $3, $4, $5, $6)`,
+		id, name, url, ownerUUID, createdAt, false,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload file")
+	}
+
+	return &model.File{
+		ID:        id.String(),
+		Name:      name,
+		URL:       url,
+		Owner:     userID,
+		CreatedAt: createdAt.Format(time.RFC3339),
+		IsPublic:  false,
+	}, nil
+}
+
+// UpdateFile is the resolver for the updateFile field.
+func (r *mutationResolver) UpdateFile(ctx context.Context, id string, name *string, url *string) (*model.File, error) {
+	userID, ok := auth.ForContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("authentication required")
+	}
+
+	fileUUID, err := uuid.Parse(id)
+	if err != nil {
+		return nil, fmt.Errorf("invalid file ID")
+	}
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user ID")
+	}
+
+	// Verify ownership
+	var isOwner bool
+	err = r.DB.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1 FROM files
+			WHERE id = $1 AND owner = $2
+		)`, fileUUID, userUUID).Scan(&isOwner)
+	if err != nil || !isOwner {
+		return nil, fmt.Errorf("unauthorized: only owner can update file")
+	}
+
+	// Build update query
+	var updates []string
+	var args []any
+
+	if name != nil {
+		updates = append(updates, "name = $1")
+		args = append(args, *name)
+	}
+	if url != nil {
+		updates = append(updates, "url = $2")
+		args = append(args, *url)
+	}
+
+	if len(updates) == 0 {
+		return nil, fmt.Errorf("no fields provided for update")
+	}
+
+	args = append(args, fileUUID)
+	query := fmt.Sprintf(
+		"UPDATE files SET %s WHERE id = $%d",
+		strings.Join(updates, ", "),
+		len(args),
+	)
+
+	_, err = r.DB.Exec(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update file")
+	}
+
+	var file model.File
+	err = r.DB.QueryRow(`
+		SELECT id, name, url, owner, created_at, is_public
+		FROM files
+		WHERE id = $1`, fileUUID).Scan(
+		&file.ID,
+		&file.Name,
+		&file.URL,
+		&file.Owner,
+		&file.CreatedAt,
+		&file.IsPublic,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch updated file")
+	}
+
+	return &file, nil
+}
+
+// DeleteFile is the resolver for the deleteFile field.
+func (r *mutationResolver) DeleteFile(ctx context.Context, fileID string) (bool, error) {
+	userID, ok := auth.ForContext(ctx)
+	if !ok {
+		return false, fmt.Errorf("authentication required")
+	}
+
+	fileUUID, err := uuid.Parse(fileID)
+	if err != nil {
+		return false, fmt.Errorf("invalid file ID")
+	}
+
+	// Start transaction
+	tx, err := r.DB.Begin()
+	if err != nil {
+		return false, fmt.Errorf("failed to start transaction")
+	}
+	defer tx.Rollback()
+
+	// Verify ownership
+	var isOwner bool
+	err = tx.QueryRow(`
+        SELECT EXISTS (
+            SELECT 1 FROM files
+            WHERE id = $1 AND owner = $2
+        )`, fileUUID, userID).Scan(&isOwner)
+	if err != nil || !isOwner {
+		return false, fmt.Errorf("unauthorized: only owner can delete file")
+	}
+
+	// Delete from shared_file first
+	_, err = tx.Exec(`DELETE FROM shared_file WHERE file_id = $1`, fileUUID)
+	if err != nil {
+		return false, fmt.Errorf("failed to delete shared links")
+	}
+
+	// Then delete the file
+	_, err = tx.Exec(`DELETE FROM files WHERE id = $1`, fileUUID)
+	if err != nil {
+		return false, fmt.Errorf("failed to delete file")
+	}
+
+	// Commit transaction
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("failed to commit transaction")
+	}
+
+	return true, nil
+}
+
+// ShareFile is the resolver for the shareFile field.
+func (r *mutationResolver) ShareFile(ctx context.Context, fileID string, userID string) (bool, error) {
+	currentUserID, ok := auth.ForContext(ctx)
+	if !ok {
+		return false, fmt.Errorf("authentication required")
+	}
+
+	fileUUID, err := uuid.Parse(fileID)
+	if err != nil {
+		return false, fmt.Errorf("invalid file ID")
+	}
+
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return false, fmt.Errorf("invalid user ID")
+	}
+
+	// Verify if the current user is the owner of the file
+	var isOwner bool
+	err = r.DB.QueryRow(`
+        SELECT EXISTS (
+            SELECT 1 FROM files
+            WHERE id = $1 AND owner = $2
+        )`, fileUUID, currentUserID).Scan(&isOwner)
+	if err != nil || !isOwner {
+		return false, fmt.Errorf("unauthorized: only owner can share the file")
+	}
+
+	// Check if the user has already been shared the file
+	var alreadyShared bool
+	err = r.DB.QueryRow(`
+        SELECT EXISTS (
+            SELECT 1 FROM shared_file
+            WHERE file_id = $1 AND user_id = $2
+        )`, fileUUID, userUUID).Scan(&alreadyShared)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if file is already shared")
+	}
+
+	if alreadyShared {
+		return false, fmt.Errorf("file already shared with this user")
+	}
+
+	// Insert the share record
+	_, err = r.DB.Exec(`
+        INSERT INTO shared_file (file_id, user_id)
+        VALUES ($1, $2)`, fileUUID, userUUID)
+	if err != nil {
+		return false, fmt.Errorf("failed to share file")
+	}
+
+	return true, nil
+}
+
+// MakeFilePublic is the resolver for the makeFilePublic field.
+func (r *mutationResolver) MakeFilePublic(ctx context.Context, fileID string) (bool, error) {
+	currentUserID, ok := auth.ForContext(ctx)
+	if !ok {
+		return false, fmt.Errorf("authentication required")
+	}
+
+	fileUUID, err := uuid.Parse(fileID)
+	if err != nil {
+		return false, fmt.Errorf("invalid file ID")
+	}
+
+	// Verify if the current user is the owner of the file
+	var isOwner bool
+	err = r.DB.QueryRow(`
+        SELECT EXISTS (
+            SELECT 1 FROM files
+            WHERE id = $1 AND owner = $2
+        )`, fileUUID, currentUserID).Scan(&isOwner)
+	if err != nil || !isOwner {
+		return false, fmt.Errorf("unauthorized: only owner can make file public")
+	}
+
+	// Update the file's "is_public" field to true
+	_, err = r.DB.Exec(`
+        UPDATE files SET is_public = true
+        WHERE id = $1`, fileUUID)
+	if err != nil {
+		return false, fmt.Errorf("failed to make file public")
+	}
+
+	return true, nil
+}
+
+// RevokeShare is the resolver for the revokeShare field.
+func (r *mutationResolver) RevokeShare(ctx context.Context, fileID string, userID string) (bool, error) {
+	currentUserID, ok := auth.ForContext(ctx)
+	if !ok {
+		return false, fmt.Errorf("authentication required")
+	}
+
+	fileUUID, err := uuid.Parse(fileID)
+	if err != nil {
+		return false, fmt.Errorf("invalid file ID")
+	}
+
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return false, fmt.Errorf("invalid user ID")
+	}
+
+	// Verify if the current user is the owner of the file
+	var isOwner bool
+	err = r.DB.QueryRow(`
+        SELECT EXISTS (
+            SELECT 1 FROM files
+            WHERE id = $1 AND owner = $2
+        )`, fileUUID, currentUserID).Scan(&isOwner)
+	if err != nil || !isOwner {
+		return false, fmt.Errorf("unauthorized: only owner can revoke share")
+	}
+
+	// Check if the file is shared with the user
+	var shared bool
+	err = r.DB.QueryRow(`
+        SELECT EXISTS (
+            SELECT 1 FROM shared_file
+            WHERE file_id = $1 AND user_id = $2
+        )`, fileUUID, userUUID).Scan(&shared)
+	if err != nil || !shared {
+		return false, fmt.Errorf("file is not shared with this user")
+	}
+
+	// Delete the share record
+	_, err = r.DB.Exec(`
+        DELETE FROM shared_file
+        WHERE file_id = $1 AND user_id = $2`, fileUUID, userUUID)
+	if err != nil {
+		return false, fmt.Errorf("failed to revoke share")
+	}
+
+	return true, nil
 }
 
 // Files is the resolver for the files field.
-func (r *queryResolver) Files(ctx context.Context) ([]*model.File, error) {
-	panic(fmt.Errorf("not implemented: Files - files"))
+func (r *queryResolver) Files(ctx context.Context, owner string) ([]*model.File, error) {
+	ownerUUID, err := uuid.Parse(owner)
+	if err != nil {
+		return nil, fmt.Errorf("invalid owner UUID")
+	}
+
+	rows, err := r.DB.Query(`
+		SELECT id, name, url, owner, created_at, is_public
+		FROM files
+		WHERE owner = $1`, ownerUUID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var files []*model.File
+	for rows.Next() {
+		var file model.File
+		err := rows.Scan(&file.ID, &file.Name, &file.URL, &file.Owner, &file.CreatedAt, &file.IsPublic)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, &file)
+	}
+	return files, nil
 }
 
 // File is the resolver for the file field.
-func (r *queryResolver) File(ctx context.Context, id string) (*model.File, error) {
-	panic(fmt.Errorf("not implemented: File - file"))
+func (r *queryResolver) File(ctx context.Context, fileID string) (*model.File, error) {
+	fileUUID, err := uuid.Parse(fileID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid file ID")
+	}
+
+	// Get user from context (optional)
+	userID, _ := auth.ForContext(ctx)
+
+	query := `
+		SELECT id, name, url, owner, created_at, is_public
+		FROM files
+		WHERE id = $1 AND (
+			is_public = true
+			OR owner = $2
+			OR EXISTS (
+				SELECT 1 FROM shared_file
+				WHERE file_id = $1 AND user_id = $2
+			)
+		)
+	`
+
+	row := r.DB.QueryRow(query, fileUUID, userID)
+	var file model.File
+	err = row.Scan(&file.ID, &file.Name, &file.URL, &file.Owner, &file.CreatedAt, &file.IsPublic)
+	if err != nil {
+		return nil, fmt.Errorf("file not found or unauthorized")
+	}
+
+	return &file, nil
+}
+
+// SharedFiles is the resolver for the sharedFiles field.
+func (r *queryResolver) SharedFiles(ctx context.Context) ([]*model.File, error) {
+	userID, ok := auth.ForContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("authentication required")
+	}
+
+	rows, err := r.DB.Query(`
+        SELECT f.id, f.name, f.url, f.owner, f.created_at, f.is_public
+        FROM shared_file sf
+        JOIN files f ON sf.file_id = f.id
+        WHERE sf.user_id = $1 AND f.owner != $1`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query shared files")
+	}
+	defer rows.Close()
+
+	var files []*model.File
+	for rows.Next() {
+		var file model.File
+		if err := rows.Scan(
+			&file.ID,
+			&file.Name,
+			&file.URL,
+			&file.Owner,
+			&file.CreatedAt,
+			&file.IsPublic,
+		); err != nil {
+			return nil, err
+		}
+		files = append(files, &file)
+	}
+	return files, nil
+}
+
+// MyFiles is the resolver for the myFiles field.
+func (r *queryResolver) MyFiles(ctx context.Context) ([]*model.File, error) {
+	userID, ok := auth.ForContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("authentication required")
+	}
+
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user ID")
+	}
+
+	rows, err := r.DB.Query(`
+		SELECT f.id, f.name, f.url, f.owner, f.created_at, f.is_public
+		FROM files f
+		LEFT JOIN shared_file sf ON f.id = sf.file_id
+		WHERE f.owner = $1 OR sf.user_id = $1`,
+		userUUID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query files")
+	}
+	defer rows.Close()
+
+	var files []*model.File
+	for rows.Next() {
+		var file model.File
+		if err := rows.Scan(
+			&file.ID,
+			&file.Name,
+			&file.URL,
+			&file.Owner,
+			&file.CreatedAt,
+			&file.IsPublic,
+		); err != nil {
+			return nil, err
+		}
+		files = append(files, &file)
+	}
+	return files, nil
+}
+
+// PublicFiles is the resolver for the publicFiles field.
+func (r *queryResolver) PublicFiles(ctx context.Context) ([]*model.File, error) {
+	rows, err := r.DB.Query(`
+        SELECT id, name, url, owner, created_at, is_public
+        FROM files
+        WHERE is_public = true`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query public files")
+	}
+	defer rows.Close()
+
+	var files []*model.File
+	for rows.Next() {
+		var file model.File
+		if err := rows.Scan(
+			&file.ID,
+			&file.Name,
+			&file.URL,
+			&file.Owner,
+			&file.CreatedAt,
+			&file.IsPublic,
+		); err != nil {
+			return nil, err
+		}
+		files = append(files, &file)
+	}
+	return files, nil
 }
 
 // Mutation returns MutationResolver implementation.

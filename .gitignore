@@ -1,0 +1,30 @@
+# ----- Go Backend Rules (prefixed with backend/) -----
+backend/bin/
+backend/exe/
+backend/*.exe
+backend/*.so
+backend/*.a
+backend/*.test
+backend/vendor/
+backend/go.sum
+
+# ----- Environment/IDE -----
+backend/.env
+backend/.env.local
+backend/.vscode/
+backend/.idea/
+
+# ----- Logs/Build Artifacts -----
+backend/*.log
+backend/*.prof
+backend/coverage.out
+
+# ----- Frontend (React/Node) -----
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+
+
+# ----- OS Junk -----
+.DS_Store
+Thumbs.db

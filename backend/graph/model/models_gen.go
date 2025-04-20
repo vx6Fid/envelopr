@@ -2,14 +2,42 @@
 
 package model
 
+type AuthPayload struct {
+	Token        string `json:"token"`
+	TokenExpires string `json:"tokenExpires"`
+	User         *User  `json:"user"`
+}
+
 type File struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	ID         string  `json:"id"`
+	Name       string  `json:"name"`
+	URL        string  `json:"url"`
+	Owner      string  `json:"owner"`
+	CreatedAt  string  `json:"createdAt"`
+	IsPublic   bool    `json:"isPublic"`
+	SharedWith []*User `json:"sharedWith"`
+}
+
+type LoginInput struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 type Mutation struct {
 }
 
 type Query struct {
+}
+
+type RegisterInput struct {
+	Username        string `json:"username"`
+	Password        string `json:"password"`
+	ConfirmPassword string `json:"confirmPassword"`
+}
+
+type User struct {
+	ID        string  `json:"id"`
+	Username  string  `json:"username"`
+	CreatedAt string  `json:"createdAt"`
+	Files     []*File `json:"files"`
 }

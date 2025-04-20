@@ -1,18 +1,57 @@
-# GraphQL schema example
-#
-# https://gqlgen.com/getting-started/
+type User {
+    id: ID!
+    username: String!
+    createdAt: String!
+    files: [File!]! # Add relationship
+}
 
 type File {
     id: ID!
     name: String!
     url: String!
+    owner: ID!
+    createdAt: String!
+    isPublic: Boolean!
+    sharedWith: [User!]!
 }
 
 type Query {
-    files: [File!]!
-    file(id: ID!): File
+    files(owner: ID!): [File!]!
+    file(fileID: ID!): File
+    sharedFiles: [File!]!
+    myFiles: [File!]!
+    publicFiles: [File!]!
 }
 
 type Mutation {
-    uploadFile(name: String!, url: String!): File!
+    # Authentication
+    login(username: String!, password: String!): AuthPayload!
+    register(username: String!, password: String!): AuthPayload!
+    refreshToken: AuthPayload!
+
+    # File Operations
+    uploadFile(name: String!, url: String!): File! # owner from context
+    updateFile(id: ID!, name: String, url: String): File!
+    deleteFile(fileID: ID!): Boolean!
+    shareFile(fileID: ID!, userID: ID!): Boolean!
+    makeFilePublic(fileID: ID!): Boolean!
+    revokeShare(fileID: ID!, userID: ID!): Boolean!
+}
+
+type AuthPayload {
+    token: String!
+    tokenExpires: String!
+    user: User!
+}
+
+# Input Types
+input LoginInput {
+    username: String!
+    password: String!
+}
+
+input RegisterInput {
+    username: String!
+    password: String!
+    confirmPassword: String!
 }
