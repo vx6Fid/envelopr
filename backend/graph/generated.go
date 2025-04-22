@@ -54,40 +54,42 @@ type ComplexityRoot struct {
 	}
 
 	File struct {
+		Content    func(childComplexity int) int
 		CreatedAt  func(childComplexity int) int
 		ID         func(childComplexity int) int
 		IsPublic   func(childComplexity int) int
 		Name       func(childComplexity int) int
 		Owner      func(childComplexity int) int
 		SharedWith func(childComplexity int) int
-		URL        func(childComplexity int) int
 	}
 
 	Mutation struct {
-		DeleteFile     func(childComplexity int, fileID string) int
-		Login          func(childComplexity int, username string, password string) int
-		MakeFilePublic func(childComplexity int, fileID string) int
-		RefreshToken   func(childComplexity int) int
-		Register       func(childComplexity int, username string, password string) int
-		RevokeShare    func(childComplexity int, fileID string, userID string) int
-		ShareFile      func(childComplexity int, fileID string, userID string) int
-		UpdateFile     func(childComplexity int, id string, name *string, url *string) int
-		UploadFile     func(childComplexity int, name string, url string) int
+		DeleteFile        func(childComplexity int, fileID string) int
+		Login             func(childComplexity int, username string, password string) int
+		MakeFilePublic    func(childComplexity int, fileID string) int
+		RefreshToken      func(childComplexity int) int
+		Register          func(childComplexity int, username string, password string) int
+		RevokeShare       func(childComplexity int, fileID string, userID string) int
+		ShareFile         func(childComplexity int, fileID string, userID string) int
+		UpdateFile        func(childComplexity int, id string, name *string) int
+		UpdateFileContent func(childComplexity int, id string, content string) int
+		UploadFile        func(childComplexity int, name string, content string) int
 	}
 
 	Query struct {
 		File        func(childComplexity int, fileID string) int
 		Files       func(childComplexity int, owner string) int
 		MyFiles     func(childComplexity int) int
+		PublicFile  func(childComplexity int, fileID string) int
 		PublicFiles func(childComplexity int) int
 		SharedFiles func(childComplexity int) int
 	}
 
 	User struct {
-		CreatedAt func(childComplexity int) int
-		Files     func(childComplexity int) int
-		ID        func(childComplexity int) int
-		Username  func(childComplexity int) int
+		CreatedAt    func(childComplexity int) int
+		ID           func(childComplexity int) int
+		PasswordHash func(childComplexity int) int
+		Username     func(childComplexity int) int
 	}
 }
 
@@ -95,8 +97,9 @@ type MutationResolver interface {
 	Login(ctx context.Context, username string, password string) (*model.AuthPayload, error)
 	Register(ctx context.Context, username string, password string) (*model.AuthPayload, error)
 	RefreshToken(ctx context.Context) (*model.AuthPayload, error)
-	UploadFile(ctx context.Context, name string, url string) (*model.File, error)
-	UpdateFile(ctx context.Context, id string, name *string, url *string) (*model.File, error)
+	UploadFile(ctx context.Context, name string, content string) (*model.File, error)
+	UpdateFile(ctx context.Context, id string, name *string) (*model.File, error)
+	UpdateFileContent(ctx context.Context, id string, content string) (*model.File, error)
 	DeleteFile(ctx context.Context, fileID string) (bool, error)
 	ShareFile(ctx context.Context, fileID string, userID string) (bool, error)
 	MakeFilePublic(ctx context.Context, fileID string) (bool, error)
@@ -108,6 +111,7 @@ type QueryResolver interface {
 	SharedFiles(ctx context.Context) ([]*model.File, error)
 	MyFiles(ctx context.Context) ([]*model.File, error)
 	PublicFiles(ctx context.Context) ([]*model.File, error)
+	PublicFile(ctx context.Context, fileID string) (*model.File, error)
 }
 
 type executableSchema struct {
@@ -150,6 +154,13 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.AuthPayload.User(childComplexity), true
 
+	case "File.content":
+		if e.complexity.File.Content == nil {
+			break
+		}
+
+		return e.complexity.File.Content(childComplexity), true
+
 	case "File.createdAt":
 		if e.complexity.File.CreatedAt == nil {
 			break
@@ -191,13 +202,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.complexity.File.SharedWith(childComplexity), true
-
-	case "File.url":
-		if e.complexity.File.URL == nil {
-			break
-		}
-
-		return e.complexity.File.URL(childComplexity), true
 
 	case "Mutation.deleteFile":
 		if e.complexity.Mutation.DeleteFile == nil {
@@ -288,7 +292,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Mutation.UpdateFile(childComplexity, args["id"].(string), args["name"].(*string), args["url"].(*string)), true
+		return e.complexity.Mutation.UpdateFile(childComplexity, args["id"].(string), args["name"].(*string)), true
+
+	case "Mutation.updateFileContent":
+		if e.complexity.Mutation.UpdateFileContent == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_updateFileContent_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.UpdateFileContent(childComplexity, args["id"].(string), args["content"].(string)), true
 
 	case "Mutation.uploadFile":
 		if e.complexity.Mutation.UploadFile == nil {
@@ -300,7 +316,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.complexity.Mutation.UploadFile(childComplexity, args["name"].(string), args["url"].(string)), true
+		return e.complexity.Mutation.UploadFile(childComplexity, args["name"].(string), args["content"].(string)), true
 
 	case "Query.file":
 		if e.complexity.Query.File == nil {
@@ -333,6 +349,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.Query.MyFiles(childComplexity), true
 
+	case "Query.publicFile":
+		if e.complexity.Query.PublicFile == nil {
+			break
+		}
+
+		args, err := ec.field_Query_publicFile_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Query.PublicFile(childComplexity, args["fileID"].(string)), true
+
 	case "Query.publicFiles":
 		if e.complexity.Query.PublicFiles == nil {
 			break
@@ -354,19 +382,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.complexity.User.CreatedAt(childComplexity), true
 
-	case "User.files":
-		if e.complexity.User.Files == nil {
-			break
-		}
-
-		return e.complexity.User.Files(childComplexity), true
-
 	case "User.id":
 		if e.complexity.User.ID == nil {
 			break
 		}
 
 		return e.complexity.User.ID(childComplexity), true
+
+	case "User.password_hash":
+		if e.complexity.User.PasswordHash == nil {
+			break
+		}
+
+		return e.complexity.User.PasswordHash(childComplexity), true
 
 	case "User.username":
 		if e.complexity.User.Username == nil {
@@ -711,6 +739,47 @@ func (ec *executionContext) field_Mutation_shareFile_argsUserID(
 	return zeroVal, nil
 }
 
+func (ec *executionContext) field_Mutation_updateFileContent_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Mutation_updateFileContent_argsID(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := ec.field_Mutation_updateFileContent_argsContent(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["content"] = arg1
+	return args, nil
+}
+func (ec *executionContext) field_Mutation_updateFileContent_argsID(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (string, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("id"))
+	if tmp, ok := rawArgs["id"]; ok {
+		return ec.unmarshalNID2string(ctx, tmp)
+	}
+
+	var zeroVal string
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Mutation_updateFileContent_argsContent(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (string, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("content"))
+	if tmp, ok := rawArgs["content"]; ok {
+		return ec.unmarshalNString2string(ctx, tmp)
+	}
+
+	var zeroVal string
+	return zeroVal, nil
+}
+
 func (ec *executionContext) field_Mutation_updateFile_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -724,11 +793,6 @@ func (ec *executionContext) field_Mutation_updateFile_args(ctx context.Context, 
 		return nil, err
 	}
 	args["name"] = arg1
-	arg2, err := ec.field_Mutation_updateFile_argsURL(ctx, rawArgs)
-	if err != nil {
-		return nil, err
-	}
-	args["url"] = arg2
 	return args, nil
 }
 func (ec *executionContext) field_Mutation_updateFile_argsID(
@@ -757,19 +821,6 @@ func (ec *executionContext) field_Mutation_updateFile_argsName(
 	return zeroVal, nil
 }
 
-func (ec *executionContext) field_Mutation_updateFile_argsURL(
-	ctx context.Context,
-	rawArgs map[string]any,
-) (*string, error) {
-	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("url"))
-	if tmp, ok := rawArgs["url"]; ok {
-		return ec.unmarshalOString2ᚖstring(ctx, tmp)
-	}
-
-	var zeroVal *string
-	return zeroVal, nil
-}
-
 func (ec *executionContext) field_Mutation_uploadFile_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -778,11 +829,11 @@ func (ec *executionContext) field_Mutation_uploadFile_args(ctx context.Context, 
 		return nil, err
 	}
 	args["name"] = arg0
-	arg1, err := ec.field_Mutation_uploadFile_argsURL(ctx, rawArgs)
+	arg1, err := ec.field_Mutation_uploadFile_argsContent(ctx, rawArgs)
 	if err != nil {
 		return nil, err
 	}
-	args["url"] = arg1
+	args["content"] = arg1
 	return args, nil
 }
 func (ec *executionContext) field_Mutation_uploadFile_argsName(
@@ -798,12 +849,12 @@ func (ec *executionContext) field_Mutation_uploadFile_argsName(
 	return zeroVal, nil
 }
 
-func (ec *executionContext) field_Mutation_uploadFile_argsURL(
+func (ec *executionContext) field_Mutation_uploadFile_argsContent(
 	ctx context.Context,
 	rawArgs map[string]any,
 ) (string, error) {
-	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("url"))
-	if tmp, ok := rawArgs["url"]; ok {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("content"))
+	if tmp, ok := rawArgs["content"]; ok {
 		return ec.unmarshalNString2string(ctx, tmp)
 	}
 
@@ -873,6 +924,29 @@ func (ec *executionContext) field_Query_files_argsOwner(
 ) (string, error) {
 	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("owner"))
 	if tmp, ok := rawArgs["owner"]; ok {
+		return ec.unmarshalNID2string(ctx, tmp)
+	}
+
+	var zeroVal string
+	return zeroVal, nil
+}
+
+func (ec *executionContext) field_Query_publicFile_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := ec.field_Query_publicFile_argsFileID(ctx, rawArgs)
+	if err != nil {
+		return nil, err
+	}
+	args["fileID"] = arg0
+	return args, nil
+}
+func (ec *executionContext) field_Query_publicFile_argsFileID(
+	ctx context.Context,
+	rawArgs map[string]any,
+) (string, error) {
+	ctx = graphql.WithPathContext(ctx, graphql.NewPathWithField("fileID"))
+	if tmp, ok := rawArgs["fileID"]; ok {
 		return ec.unmarshalNID2string(ctx, tmp)
 	}
 
@@ -1113,8 +1187,8 @@ func (ec *executionContext) fieldContext_AuthPayload_user(_ context.Context, fie
 				return ec.fieldContext_User_username(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_User_createdAt(ctx, field)
-			case "files":
-				return ec.fieldContext_User_files(ctx, field)
+			case "password_hash":
+				return ec.fieldContext_User_password_hash(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type User", field.Name)
 		},
@@ -1198,50 +1272,6 @@ func (ec *executionContext) _File_name(ctx context.Context, field graphql.Collec
 }
 
 func (ec *executionContext) fieldContext_File_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "File",
-		Field:      field,
-		IsMethod:   false,
-		IsResolver: false,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return nil, errors.New("field of type String does not have child fields")
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _File_url(ctx context.Context, field graphql.CollectedField, obj *model.File) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_File_url(ctx, field)
-	if err != nil {
-		return graphql.Null
-	}
-	ctx = graphql.WithFieldContext(ctx, fc)
-	defer func() {
-		if r := recover(); r != nil {
-			ec.Error(ctx, ec.Recover(ctx, r))
-			ret = graphql.Null
-		}
-	}()
-	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
-		ctx = rctx // use context from middleware stack in children
-		return obj.URL, nil
-	})
-	if err != nil {
-		ec.Error(ctx, err)
-		return graphql.Null
-	}
-	if resTmp == nil {
-		if !graphql.HasFieldError(ctx, fc) {
-			ec.Errorf(ctx, "must not be null")
-		}
-		return graphql.Null
-	}
-	res := resTmp.(string)
-	fc.Result = res
-	return ec.marshalNString2string(ctx, field.Selections, res)
-}
-
-func (ec *executionContext) fieldContext_File_url(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "File",
 		Field:      field,
@@ -1386,6 +1416,50 @@ func (ec *executionContext) fieldContext_File_isPublic(_ context.Context, field 
 	return fc, nil
 }
 
+func (ec *executionContext) _File_content(ctx context.Context, field graphql.CollectedField, obj *model.File) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_File_content(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return obj.Content, nil
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(string)
+	fc.Result = res
+	return ec.marshalNString2string(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_File_content(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "File",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return nil, errors.New("field of type String does not have child fields")
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _File_sharedWith(ctx context.Context, field graphql.CollectedField, obj *model.File) (ret graphql.Marshaler) {
 	fc, err := ec.fieldContext_File_sharedWith(ctx, field)
 	if err != nil {
@@ -1431,8 +1505,8 @@ func (ec *executionContext) fieldContext_File_sharedWith(_ context.Context, fiel
 				return ec.fieldContext_User_username(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_User_createdAt(ctx, field)
-			case "files":
-				return ec.fieldContext_User_files(ctx, field)
+			case "password_hash":
+				return ec.fieldContext_User_password_hash(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type User", field.Name)
 		},
@@ -1632,7 +1706,7 @@ func (ec *executionContext) _Mutation_uploadFile(ctx context.Context, field grap
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Mutation().UploadFile(rctx, fc.Args["name"].(string), fc.Args["url"].(string))
+		return ec.resolvers.Mutation().UploadFile(rctx, fc.Args["name"].(string), fc.Args["content"].(string))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -1661,14 +1735,14 @@ func (ec *executionContext) fieldContext_Mutation_uploadFile(ctx context.Context
 				return ec.fieldContext_File_id(ctx, field)
 			case "name":
 				return ec.fieldContext_File_name(ctx, field)
-			case "url":
-				return ec.fieldContext_File_url(ctx, field)
 			case "owner":
 				return ec.fieldContext_File_owner(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_File_createdAt(ctx, field)
 			case "isPublic":
 				return ec.fieldContext_File_isPublic(ctx, field)
+			case "content":
+				return ec.fieldContext_File_content(ctx, field)
 			case "sharedWith":
 				return ec.fieldContext_File_sharedWith(ctx, field)
 			}
@@ -1703,7 +1777,7 @@ func (ec *executionContext) _Mutation_updateFile(ctx context.Context, field grap
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return ec.resolvers.Mutation().UpdateFile(rctx, fc.Args["id"].(string), fc.Args["name"].(*string), fc.Args["url"].(*string))
+		return ec.resolvers.Mutation().UpdateFile(rctx, fc.Args["id"].(string), fc.Args["name"].(*string))
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -1732,14 +1806,14 @@ func (ec *executionContext) fieldContext_Mutation_updateFile(ctx context.Context
 				return ec.fieldContext_File_id(ctx, field)
 			case "name":
 				return ec.fieldContext_File_name(ctx, field)
-			case "url":
-				return ec.fieldContext_File_url(ctx, field)
 			case "owner":
 				return ec.fieldContext_File_owner(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_File_createdAt(ctx, field)
 			case "isPublic":
 				return ec.fieldContext_File_isPublic(ctx, field)
+			case "content":
+				return ec.fieldContext_File_content(ctx, field)
 			case "sharedWith":
 				return ec.fieldContext_File_sharedWith(ctx, field)
 			}
@@ -1754,6 +1828,77 @@ func (ec *executionContext) fieldContext_Mutation_updateFile(ctx context.Context
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_updateFile_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_updateFileContent(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Mutation_updateFileContent(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().UpdateFileContent(rctx, fc.Args["id"].(string), fc.Args["content"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.(*model.File)
+	fc.Result = res
+	return ec.marshalNFile2ᚖgithubᚗcomᚋvxF6idᚋenveloprᚋbackendᚋgraphᚋmodelᚐFile(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Mutation_updateFileContent(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_File_id(ctx, field)
+			case "name":
+				return ec.fieldContext_File_name(ctx, field)
+			case "owner":
+				return ec.fieldContext_File_owner(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_File_createdAt(ctx, field)
+			case "isPublic":
+				return ec.fieldContext_File_isPublic(ctx, field)
+			case "content":
+				return ec.fieldContext_File_content(ctx, field)
+			case "sharedWith":
+				return ec.fieldContext_File_sharedWith(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type File", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_updateFileContent_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -2023,14 +2168,14 @@ func (ec *executionContext) fieldContext_Query_files(ctx context.Context, field 
 				return ec.fieldContext_File_id(ctx, field)
 			case "name":
 				return ec.fieldContext_File_name(ctx, field)
-			case "url":
-				return ec.fieldContext_File_url(ctx, field)
 			case "owner":
 				return ec.fieldContext_File_owner(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_File_createdAt(ctx, field)
 			case "isPublic":
 				return ec.fieldContext_File_isPublic(ctx, field)
+			case "content":
+				return ec.fieldContext_File_content(ctx, field)
 			case "sharedWith":
 				return ec.fieldContext_File_sharedWith(ctx, field)
 			}
@@ -2091,14 +2236,14 @@ func (ec *executionContext) fieldContext_Query_file(ctx context.Context, field g
 				return ec.fieldContext_File_id(ctx, field)
 			case "name":
 				return ec.fieldContext_File_name(ctx, field)
-			case "url":
-				return ec.fieldContext_File_url(ctx, field)
 			case "owner":
 				return ec.fieldContext_File_owner(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_File_createdAt(ctx, field)
 			case "isPublic":
 				return ec.fieldContext_File_isPublic(ctx, field)
+			case "content":
+				return ec.fieldContext_File_content(ctx, field)
 			case "sharedWith":
 				return ec.fieldContext_File_sharedWith(ctx, field)
 			}
@@ -2162,14 +2307,14 @@ func (ec *executionContext) fieldContext_Query_sharedFiles(_ context.Context, fi
 				return ec.fieldContext_File_id(ctx, field)
 			case "name":
 				return ec.fieldContext_File_name(ctx, field)
-			case "url":
-				return ec.fieldContext_File_url(ctx, field)
 			case "owner":
 				return ec.fieldContext_File_owner(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_File_createdAt(ctx, field)
 			case "isPublic":
 				return ec.fieldContext_File_isPublic(ctx, field)
+			case "content":
+				return ec.fieldContext_File_content(ctx, field)
 			case "sharedWith":
 				return ec.fieldContext_File_sharedWith(ctx, field)
 			}
@@ -2222,14 +2367,14 @@ func (ec *executionContext) fieldContext_Query_myFiles(_ context.Context, field 
 				return ec.fieldContext_File_id(ctx, field)
 			case "name":
 				return ec.fieldContext_File_name(ctx, field)
-			case "url":
-				return ec.fieldContext_File_url(ctx, field)
 			case "owner":
 				return ec.fieldContext_File_owner(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_File_createdAt(ctx, field)
 			case "isPublic":
 				return ec.fieldContext_File_isPublic(ctx, field)
+			case "content":
+				return ec.fieldContext_File_content(ctx, field)
 			case "sharedWith":
 				return ec.fieldContext_File_sharedWith(ctx, field)
 			}
@@ -2282,19 +2427,87 @@ func (ec *executionContext) fieldContext_Query_publicFiles(_ context.Context, fi
 				return ec.fieldContext_File_id(ctx, field)
 			case "name":
 				return ec.fieldContext_File_name(ctx, field)
-			case "url":
-				return ec.fieldContext_File_url(ctx, field)
 			case "owner":
 				return ec.fieldContext_File_owner(ctx, field)
 			case "createdAt":
 				return ec.fieldContext_File_createdAt(ctx, field)
 			case "isPublic":
 				return ec.fieldContext_File_isPublic(ctx, field)
+			case "content":
+				return ec.fieldContext_File_content(ctx, field)
 			case "sharedWith":
 				return ec.fieldContext_File_sharedWith(ctx, field)
 			}
 			return nil, fmt.Errorf("no field named %q was found under type File", field.Name)
 		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_publicFile(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_Query_publicFile(ctx, field)
+	if err != nil {
+		return graphql.Null
+	}
+	ctx = graphql.WithFieldContext(ctx, fc)
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Query().PublicFile(rctx, fc.Args["fileID"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		return graphql.Null
+	}
+	res := resTmp.(*model.File)
+	fc.Result = res
+	return ec.marshalOFile2ᚖgithubᚗcomᚋvxF6idᚋenveloprᚋbackendᚋgraphᚋmodelᚐFile(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) fieldContext_Query_publicFile(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			switch field.Name {
+			case "id":
+				return ec.fieldContext_File_id(ctx, field)
+			case "name":
+				return ec.fieldContext_File_name(ctx, field)
+			case "owner":
+				return ec.fieldContext_File_owner(ctx, field)
+			case "createdAt":
+				return ec.fieldContext_File_createdAt(ctx, field)
+			case "isPublic":
+				return ec.fieldContext_File_isPublic(ctx, field)
+			case "content":
+				return ec.fieldContext_File_content(ctx, field)
+			case "sharedWith":
+				return ec.fieldContext_File_sharedWith(ctx, field)
+			}
+			return nil, fmt.Errorf("no field named %q was found under type File", field.Name)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_publicFile_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
 	}
 	return fc, nil
 }
@@ -2562,8 +2775,8 @@ func (ec *executionContext) fieldContext_User_createdAt(_ context.Context, field
 	return fc, nil
 }
 
-func (ec *executionContext) _User_files(ctx context.Context, field graphql.CollectedField, obj *model.User) (ret graphql.Marshaler) {
-	fc, err := ec.fieldContext_User_files(ctx, field)
+func (ec *executionContext) _User_password_hash(ctx context.Context, field graphql.CollectedField, obj *model.User) (ret graphql.Marshaler) {
+	fc, err := ec.fieldContext_User_password_hash(ctx, field)
 	if err != nil {
 		return graphql.Null
 	}
@@ -2576,7 +2789,7 @@ func (ec *executionContext) _User_files(ctx context.Context, field graphql.Colle
 	}()
 	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (any, error) {
 		ctx = rctx // use context from middleware stack in children
-		return obj.Files, nil
+		return obj.PasswordHash, nil
 	})
 	if err != nil {
 		ec.Error(ctx, err)
@@ -2588,35 +2801,19 @@ func (ec *executionContext) _User_files(ctx context.Context, field graphql.Colle
 		}
 		return graphql.Null
 	}
-	res := resTmp.([]*model.File)
+	res := resTmp.(string)
 	fc.Result = res
-	return ec.marshalNFile2ᚕᚖgithubᚗcomᚋvxF6idᚋenveloprᚋbackendᚋgraphᚋmodelᚐFileᚄ(ctx, field.Selections, res)
+	return ec.marshalNString2string(ctx, field.Selections, res)
 }
 
-func (ec *executionContext) fieldContext_User_files(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_User_password_hash(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "User",
 		Field:      field,
 		IsMethod:   false,
 		IsResolver: false,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			switch field.Name {
-			case "id":
-				return ec.fieldContext_File_id(ctx, field)
-			case "name":
-				return ec.fieldContext_File_name(ctx, field)
-			case "url":
-				return ec.fieldContext_File_url(ctx, field)
-			case "owner":
-				return ec.fieldContext_File_owner(ctx, field)
-			case "createdAt":
-				return ec.fieldContext_File_createdAt(ctx, field)
-			case "isPublic":
-				return ec.fieldContext_File_isPublic(ctx, field)
-			case "sharedWith":
-				return ec.fieldContext_File_sharedWith(ctx, field)
-			}
-			return nil, fmt.Errorf("no field named %q was found under type File", field.Name)
+			return nil, errors.New("field of type String does not have child fields")
 		},
 	}
 	return fc, nil
@@ -4726,11 +4923,6 @@ func (ec *executionContext) _File(ctx context.Context, sel ast.SelectionSet, obj
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
-		case "url":
-			out.Values[i] = ec._File_url(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
 		case "owner":
 			out.Values[i] = ec._File_owner(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -4743,6 +4935,11 @@ func (ec *executionContext) _File(ctx context.Context, sel ast.SelectionSet, obj
 			}
 		case "isPublic":
 			out.Values[i] = ec._File_isPublic(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "content":
+			out.Values[i] = ec._File_content(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -4824,6 +5021,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "updateFile":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_updateFile(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "updateFileContent":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_updateFileContent(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -5005,6 +5209,25 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "publicFile":
+			field := field
+
+			innerFunc := func(ctx context.Context, _ *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_publicFile(ctx, field)
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "__type":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Query___type(ctx, field)
@@ -5062,8 +5285,8 @@ func (ec *executionContext) _User(ctx context.Context, sel ast.SelectionSet, obj
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
-		case "files":
-			out.Values[i] = ec._User_files(ctx, field, obj)
+		case "password_hash":
+			out.Values[i] = ec._User_password_hash(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

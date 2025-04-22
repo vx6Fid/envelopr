@@ -5,7 +5,6 @@ export const MY_FILES = gql`
     myFiles {
       id
       name
-      url
       isPublic
       createdAt
     }
@@ -17,8 +16,25 @@ export const GET_FILE = gql`
     file(fileID: $fileID) {
       id
       name
-      url
       isPublic
+      content
+      createdAt
+      sharedWith {
+        id
+        username
+      }
+    }
+  }
+`;
+
+export const PUBLIC_FILE = gql`
+  query PublicFile($fileID: ID!) {
+    publicFile(fileID: $fileID) {
+      id
+      name
+      isPublic
+      content
+      createdAt
       sharedWith {
         id
         username

@@ -123,7 +123,7 @@ func (r *mutationResolver) RefreshToken(ctx context.Context) (*model.AuthPayload
 }
 
 // UploadFile is the resolver for the uploadFile field.
-func (r *mutationResolver) UploadFile(ctx context.Context, name string, url string) (*model.File, error) {
+func (r *mutationResolver) UploadFile(ctx context.Context, name string, content string) (*model.File, error) {
 	userID, ok := auth.ForContext(ctx)
 	if !ok {
 		return nil, fmt.Errorf("authentication required")
@@ -138,18 +138,17 @@ func (r *mutationResolver) UploadFile(ctx context.Context, name string, url stri
 	createdAt := time.Now()
 
 	_, err = r.DB.Exec(`
-		INSERT INTO files (id, name, url, owner, created_at, is_public)
+		INSERT INTO files (id, name, content, owner, created_at, is_public)
 		VALUES ($1, $2, $3, $4, $5, $6)`,
-		id, name, url, ownerUUID, createdAt, false,
+		id, name, content, ownerUUID, createdAt, false,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to upload file")
+		return nil, fmt.Errorf("failed to upload file: %v", err)
 	}
 
 	return &model.File{
 		ID:        id.String(),
 		Name:      name,
-		URL:       url,
 		Owner:     userID,
 		CreatedAt: createdAt.Format(time.RFC3339),
 		IsPublic:  false,
@@ -157,7 +156,7 @@ func (r *mutationResolver) UploadFile(ctx context.Context, name string, url stri
 }
 
 // UpdateFile is the resolver for the updateFile field.
-func (r *mutationResolver) UpdateFile(ctx context.Context, id string, name *string, url *string) (*model.File, error) {
+func (r *mutationResolver) UpdateFile(ctx context.Context, id string, name *string) (*model.File, error) {
 	userID, ok := auth.ForContext(ctx)
 	if !ok {
 		return nil, fmt.Errorf("authentication required")
@@ -191,10 +190,6 @@ func (r *mutationResolver) UpdateFile(ctx context.Context, id string, name *stri
 		updates = append(updates, "name = $1")
 		args = append(args, *name)
 	}
-	if url != nil {
-		updates = append(updates, "url = $2")
-		args = append(args, *url)
-	}
 
 	if len(updates) == 0 {
 		return nil, fmt.Errorf("no fields provided for update")
@@ -214,16 +209,67 @@ func (r *mutationResolver) UpdateFile(ctx context.Context, id string, name *stri
 
 	var file model.File
 	err = r.DB.QueryRow(`
-		SELECT id, name, url, owner, created_at, is_public
+		SELECT id, name, owner, created_at, is_public
 		FROM files
 		WHERE id = $1`, fileUUID).Scan(
 		&file.ID,
 		&file.Name,
-		&file.URL,
+
 		&file.Owner,
 		&file.CreatedAt,
 		&file.IsPublic,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch updated file")
+	}
+
+	return &file, nil
+}
+
+// UpdateFileContent is the resolver for the updateFileContent field.
+func (r *mutationResolver) UpdateFileContent(ctx context.Context, id string, content string) (*model.File, error) {
+	userID, ok := auth.ForContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("authentication required")
+	}
+
+	fileUUID, err := uuid.Parse(id)
+	if err != nil {
+		return nil, fmt.Errorf("invalid file ID")
+	}
+
+	// Check access: owner or shared
+	var hasAccess bool
+	err = r.DB.QueryRow(`
+			SELECT EXISTS (
+				SELECT 1 FROM files f
+				WHERE f.id = $1 AND (
+					f.owner = $2 OR EXISTS (
+						SELECT 1 FROM shared_file sf WHERE sf.file_id = $1 AND sf.user_id = $2
+					)
+				)
+			)
+		`, fileUUID, userID).Scan(&hasAccess)
+
+	if err != nil || !hasAccess {
+		return nil, fmt.Errorf("unauthorized")
+	}
+
+	// Update content
+	_, err = r.DB.Exec(`UPDATE files SET content = $1 WHERE id = $2`, content, fileUUID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update content")
+	}
+
+	// Return updated file
+	var file model.File
+	err = r.DB.QueryRow(`
+			SELECT id, name, owner, created_at, is_public, content
+			FROM files
+			WHERE id = $1`, fileUUID).Scan(
+		&file.ID, &file.Name, &file.Owner, &file.CreatedAt, &file.IsPublic, &file.Content,
+	)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch updated file")
 	}
@@ -427,7 +473,7 @@ func (r *queryResolver) Files(ctx context.Context, owner string) ([]*model.File,
 	}
 
 	rows, err := r.DB.Query(`
-		SELECT id, name, url, owner, created_at, is_public
+		SELECT id, name, owner, created_at, is_public
 		FROM files
 		WHERE owner = $1`, ownerUUID)
 	if err != nil {
@@ -438,7 +484,7 @@ func (r *queryResolver) Files(ctx context.Context, owner string) ([]*model.File,
 	var files []*model.File
 	for rows.Next() {
 		var file model.File
-		err := rows.Scan(&file.ID, &file.Name, &file.URL, &file.Owner, &file.CreatedAt, &file.IsPublic)
+		err := rows.Scan(&file.ID, &file.Name, &file.Owner, &file.CreatedAt, &file.IsPublic)
 		if err != nil {
 			return nil, err
 		}
@@ -454,26 +500,49 @@ func (r *queryResolver) File(ctx context.Context, fileID string) (*model.File, e
 		return nil, fmt.Errorf("invalid file ID")
 	}
 
-	// Get user from context (optional)
-	userID, _ := auth.ForContext(ctx)
+	// First check if file is public
+	var isPublic bool
+	err = r.DB.QueryRow(`
+		SELECT is_public FROM files WHERE id = $1
+	`, fileUUID).Scan(&isPublic)
+
+	if err != nil {
+		return nil, fmt.Errorf("file not found")
+	}
+
+	// If file is public, return it without further checks
+	if isPublic {
+		row := r.DB.QueryRow(`
+			SELECT id, name, owner, created_at, content, is_public
+			FROM files
+			WHERE id = $1
+		`, fileUUID)
+
+		var file model.File
+		if err := row.Scan(&file.ID, &file.Name, &file.Owner, &file.CreatedAt, &file.Content, &file.IsPublic); err != nil {
+			return nil, fmt.Errorf("failed to fetch public file")
+		}
+		return &file, nil
+	}
+
+	// For private files, proceed with normal auth checks
+	userID, ok := auth.ForContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("authentication required for private files")
+	}
 
 	query := `
-		SELECT id, name, url, owner, created_at, is_public
+		SELECT id, name, owner, created_at, content, is_public
 		FROM files
-		WHERE id = $1 AND (
-			is_public = true
-			OR owner = $2
-			OR EXISTS (
-				SELECT 1 FROM shared_file
-				WHERE file_id = $1 AND user_id = $2
-			)
-		)
+		WHERE id = $1 AND (owner = $2 OR EXISTS (
+			SELECT 1 FROM shared_file
+			WHERE file_id = $1 AND user_id = $2
+		))
 	`
 
 	row := r.DB.QueryRow(query, fileUUID, userID)
 	var file model.File
-	err = row.Scan(&file.ID, &file.Name, &file.URL, &file.Owner, &file.CreatedAt, &file.IsPublic)
-	if err != nil {
+	if err := row.Scan(&file.ID, &file.Name, &file.Owner, &file.CreatedAt, &file.Content, &file.IsPublic); err != nil {
 		return nil, fmt.Errorf("file not found or unauthorized")
 	}
 
@@ -488,7 +557,7 @@ func (r *queryResolver) SharedFiles(ctx context.Context) ([]*model.File, error) 
 	}
 
 	rows, err := r.DB.Query(`
-        SELECT f.id, f.name, f.url, f.owner, f.created_at, f.is_public
+        SELECT f.id, f.name, f.owner, f.created_at, f.is_public
         FROM shared_file sf
         JOIN files f ON sf.file_id = f.id
         WHERE sf.user_id = $1 AND f.owner != $1`,
@@ -505,7 +574,6 @@ func (r *queryResolver) SharedFiles(ctx context.Context) ([]*model.File, error) 
 		if err := rows.Scan(
 			&file.ID,
 			&file.Name,
-			&file.URL,
 			&file.Owner,
 			&file.CreatedAt,
 			&file.IsPublic,
@@ -530,7 +598,7 @@ func (r *queryResolver) MyFiles(ctx context.Context) ([]*model.File, error) {
 	}
 
 	rows, err := r.DB.Query(`
-		SELECT f.id, f.name, f.url, f.owner, f.created_at, f.is_public
+		SELECT f.id, f.name, f.owner, f.created_at, f.is_public
 		FROM files f
 		LEFT JOIN shared_file sf ON f.id = sf.file_id
 		WHERE f.owner = $1 OR sf.user_id = $1`,
@@ -547,7 +615,6 @@ func (r *queryResolver) MyFiles(ctx context.Context) ([]*model.File, error) {
 		if err := rows.Scan(
 			&file.ID,
 			&file.Name,
-			&file.URL,
 			&file.Owner,
 			&file.CreatedAt,
 			&file.IsPublic,
@@ -562,7 +629,7 @@ func (r *queryResolver) MyFiles(ctx context.Context) ([]*model.File, error) {
 // PublicFiles is the resolver for the publicFiles field.
 func (r *queryResolver) PublicFiles(ctx context.Context) ([]*model.File, error) {
 	rows, err := r.DB.Query(`
-        SELECT id, name, url, owner, created_at, is_public
+        SELECT id, name, owner, created_at, is_public
         FROM files
         WHERE is_public = true`)
 	if err != nil {
@@ -576,7 +643,7 @@ func (r *queryResolver) PublicFiles(ctx context.Context) ([]*model.File, error) 
 		if err := rows.Scan(
 			&file.ID,
 			&file.Name,
-			&file.URL,
+
 			&file.Owner,
 			&file.CreatedAt,
 			&file.IsPublic,
@@ -586,6 +653,34 @@ func (r *queryResolver) PublicFiles(ctx context.Context) ([]*model.File, error) 
 		files = append(files, &file)
 	}
 	return files, nil
+}
+
+// PublicFile is the resolver for the publicFile field.
+func (r *queryResolver) PublicFile(ctx context.Context, fileID string) (*model.File, error) {
+	fileUUID, err := uuid.Parse(fileID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid file ID")
+	}
+
+	var file model.File
+	err = r.DB.QueryRow(`
+			SELECT id, name, owner, created_at, content, is_public
+			FROM files
+			WHERE id = $1 AND is_public = true
+		`, fileUUID).Scan(
+		&file.ID,
+		&file.Name,
+		&file.Owner,
+		&file.CreatedAt,
+		&file.Content,
+		&file.IsPublic,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("public file not found")
+	}
+
+	return &file, nil
 }
 
 // Mutation returns MutationResolver implementation.

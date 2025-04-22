@@ -11,10 +11,10 @@ type AuthPayload struct {
 type File struct {
 	ID         string  `json:"id"`
 	Name       string  `json:"name"`
-	URL        string  `json:"url"`
 	Owner      string  `json:"owner"`
 	CreatedAt  string  `json:"createdAt"`
 	IsPublic   bool    `json:"isPublic"`
+	Content    string  `json:"content"`
 	SharedWith []*User `json:"sharedWith"`
 }
 
@@ -36,8 +36,8 @@ type RegisterInput struct {
 }
 
 type User struct {
-	ID        string  `json:"id"`
-	Username  string  `json:"username"`
-	CreatedAt string  `json:"createdAt"`
-	Files     []*File `json:"files"`
+	ID           string `json:"id"`
+	Username     string `json:"username"`
+	CreatedAt    string `json:"createdAt"`
+	PasswordHash string `json:"password_hash"`
 }

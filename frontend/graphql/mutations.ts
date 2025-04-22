@@ -15,6 +15,19 @@ export const LOGIN_USER = gql`
   }
 `;
 
+export const REGISTER_USER = gql`
+  mutation Register($username: String!, $password: String!) {
+    register(username: $username, password: $password) {
+      token
+      tokenExpires
+      user {
+        id
+        username
+      }
+    }
+  }
+`;
+
 export const DELETE_FILE = gql`
   mutation DeleteFile($fileID: ID!) {
     deleteFile(fileID: $fileID)
@@ -28,8 +41,8 @@ export const SHARE_FILE = gql`
 `;
 
 export const UPLOAD_FILE = gql`
-  mutation UploadFile($name: String!, $url: String!) {
-    uploadFile(name: $name, url: $url) {
+  mutation UploadFile($name: String!, $content: String!) {
+    uploadFile(name: $name, content: $content) {
       id
       name
     }
@@ -37,11 +50,19 @@ export const UPLOAD_FILE = gql`
 `;
 
 export const UPDATE_FILE = gql`
-  mutation UpdateFile($id: ID!, $name: String, $url: String) {
-    updateFile(id: $id, name: $name, url: $url) {
+  mutation UpdateFile($id: ID!, $name: String) {
+    updateFile(id: $id, name: $name) {
       id
       name
-      url
+    }
+  }
+`;
+
+export const UPDATE_FILE_CONTENT = gql`
+  mutation UpdateFileContent($id: ID!, $content: String!) {
+    updateFileContent(id: $id, content: $content) {
+      id
+      content
     }
   }
 `;

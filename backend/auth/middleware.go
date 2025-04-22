@@ -1,7 +1,9 @@
 package auth
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,25 +19,43 @@ const (
 
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 1. Allow OPTIONS preflight requests
 		if r.Method == http.MethodOptions {
-			next.ServeHTTP(w, r) // Preflight requests
+			next.ServeHTTP(w, r)
 			return
 		}
 
-		if r.Method == http.MethodPost {
-			buf := new(strings.Builder)
-			_, _ = io.Copy(buf, r.Body)
-			body := buf.String()
-			r.Body = io.NopCloser(strings.NewReader(body)) // Refill body for gqlgen
+		// 2. Allow public file access through dedicated endpoint
+		if strings.HasPrefix(r.URL.Path, "/public/") {
+			next.ServeHTTP(w, r)
+			return
+		}
 
-			if strings.Contains(body, "login") ||
-				strings.Contains(body, "register") ||
-				strings.Contains(body, "refreshToken") {
-				next.ServeHTTP(w, r)
+		// 3. Handle GraphQL requests
+		if r.Method == http.MethodPost && r.URL.Path == "/query" {
+			// Read and restore body
+			bodyBytes, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, "Error reading request body", http.StatusBadRequest)
 				return
+			}
+			r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+
+			// Parse GraphQL request
+			var gqlReq struct {
+				OperationName string `json:"operationName"`
+			}
+			if json.Unmarshal(bodyBytes, &gqlReq) == nil {
+				// Allow unauthenticated access to specific operations
+				switch strings.ToLower(gqlReq.OperationName) {
+				case "publicfile", "login", "register", "refreshtoken":
+					next.ServeHTTP(w, r)
+					return
+				}
 			}
 		}
 
+		// 4. Require authentication for all other requests
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" || !strings.HasPrefix(authHeader, bearerPrefix) {
 			http.Error(w, "Authorization header missing or invalid", http.StatusUnauthorized)
@@ -54,7 +74,6 @@ func Middleware(next http.Handler) http.Handler {
 	})
 }
 
-// Return the user ID from the context
 func ForContext(ctx context.Context) (string, bool) {
 	userID, ok := ctx.Value(userIDKey).(string)
 	return userID, ok

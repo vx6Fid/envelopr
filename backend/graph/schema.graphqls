@@ -8,10 +8,10 @@ type User {
 type File {
     id: ID!
     name: String!
-    url: String!
     owner: ID!
     createdAt: String!
     isPublic: Boolean!
+    content: String!
     sharedWith: [User!]!
 }
 
@@ -21,6 +21,7 @@ type Query {
     sharedFiles: [File!]!
     myFiles: [File!]!
     publicFiles: [File!]!
+    publicFile(fileID: ID!): File
 }
 
 type Mutation {
@@ -30,8 +31,9 @@ type Mutation {
     refreshToken: AuthPayload!
 
     # File Operations
-    uploadFile(name: String!, url: String!): File! # owner from context
-    updateFile(id: ID!, name: String, url: String): File!
+    uploadFile(name: String!, content: String!): File!
+    updateFile(id: ID!, name: String): File!
+    updateFileContent(id: ID!, content: String!): File!
     deleteFile(fileID: ID!): Boolean!
     shareFile(fileID: ID!, userID: ID!): Boolean!
     makeFilePublic(fileID: ID!): Boolean!
