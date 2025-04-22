@@ -7,7 +7,7 @@ import (
 	"github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/handler/transport"
 	"github.com/99designs/gqlgen/graphql/playground"
-	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/rs/cors"
 	"github.com/vxF6id/envelopr/backend/auth"
 	"github.com/vxF6id/envelopr/backend/graph"
 )

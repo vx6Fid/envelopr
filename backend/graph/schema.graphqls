@@ -2,7 +2,7 @@ type User {
     id: ID!
     username: String!
     createdAt: String!
-    files: [File!]! # Add relationship
+    password_hash: String!
 }
 
 type File {
