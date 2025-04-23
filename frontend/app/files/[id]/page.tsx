@@ -28,9 +28,12 @@ export default function FilePage() {
     createdAt: string;
   }
 
-  const { id } = useParams();
+  const { id } = useParams() as { id: string };
   const { data, loading } = useQuery(GET_FILE, {
     variables: { fileID: id },
+    onError: (err) => {
+      console.error("GraphQL error:", err);
+    },
   });
 
   const { data: sharedData, loading: sharedLoading } = useQuery(SHARED_USERS, {
@@ -223,7 +226,7 @@ export default function FilePage() {
       </div>
 
       {/* Shared Users */}
-      {sharedData.sharedUsers ? (
+      {sharedData ? (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
           <div className="border-b border-gray-200 px-4 py-3 bg-gray-50 flex items-center justify-between">
             <h2 className="text-sm font-medium text-gray-700 flex items-center">
