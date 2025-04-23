@@ -110,7 +110,7 @@ export default function RegisterPage() {
                   form.confirmPassword &&
                   form.password !== form.confirmPassword && (
                     <p className="mt-1 text-xs text-red-600">
-                      Passwords don't match
+                      {"Passwords don't match"}
                     </p>
                   )}
               </div>

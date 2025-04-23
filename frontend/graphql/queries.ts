@@ -1,5 +1,25 @@
 import { gql } from "@apollo/client";
 
+export const USER = gql`
+  query User($userID: ID!) {
+    user(id: $userID) {
+      id
+      username
+      createdAt
+    }
+  }
+`;
+
+export const SHARED_USERS = gql`
+  query SharedUsers($fileID: ID!) {
+    sharedUsers(fileID: $fileID) {
+      id
+      username
+      createdAt
+    }
+  }
+`;
+
 export const MY_FILES = gql`
   query MyFiles {
     myFiles {

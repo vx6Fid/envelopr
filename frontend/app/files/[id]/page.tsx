@@ -14,7 +14,7 @@ import {
   Loader2,
 } from "lucide-react";
 
-import { GET_FILE } from "@/graphql/queries";
+import { GET_FILE, SHARED_USERS } from "@/graphql/queries";
 import {
   UPDATE_FILE,
   MAKE_FILE_PUBLIC,
@@ -22,8 +22,18 @@ import {
 } from "@/graphql/mutations";
 
 export default function FilePage() {
+  interface User {
+    id: string;
+    username: string;
+    createdAt: string;
+  }
+
   const { id } = useParams();
   const { data, loading } = useQuery(GET_FILE, {
+    variables: { fileID: id },
+  });
+
+  const { data: sharedData, loading: sharedLoading } = useQuery(SHARED_USERS, {
     variables: { fileID: id },
   });
 
@@ -217,13 +227,15 @@ export default function FilePage() {
           </h2>
         </div>
         <div className="p-4">
-          {file.sharedWith.length === 0 ? (
+          {sharedLoading ? (
+            <p className="text-sm text-gray-500">Loading shared users...</p>
+          ) : sharedData?.sharedUsers.length === 0 ? (
             <p className="text-sm text-gray-500">
               {"This file isn't shared with anyone yet"}
             </p>
           ) : (
             <ul className="space-y-2">
-              {file.sharedWith.map((u: any) => (
+              {sharedData.sharedUsers.map((u: User) => (
                 <li key={u.id} className="flex items-center">
                   <span className="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 text-sm font-medium">
                     {u.username.charAt(0).toUpperCase()}

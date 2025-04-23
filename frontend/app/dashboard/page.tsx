@@ -20,13 +20,20 @@ import Link from "next/link";
 import { format } from "date-fns";
 
 export default function DashboardPage() {
+  interface File {
+    id: string;
+    name: string;
+    createdAt: string;
+    isPublic: boolean;
+  }
+
   const token = useAuthStore((s) => s.token);
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
   const router = useRouter();
   const [authorized, setAuthorized] = useState<boolean>(!!token);
 
-  const { data, loading, error, refetch } = useQuery(MY_FILES, {
+  const { data, loading, error, refetch } = useQuery<{ myFiles: File[] }>(MY_FILES, {
     skip: !authorized,
     fetchPolicy: "network-only",
   });
@@ -147,7 +154,7 @@ export default function DashboardPage() {
 
         {/* Files Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {data?.myFiles?.map((file: any) => (
+          {data?.myFiles?.map((file) => (
             <div
               key={file.id}
               className="bg-white overflow-hidden shadow rounded-lg hover:shadow-md transition-all duration-200 border border-gray-100"

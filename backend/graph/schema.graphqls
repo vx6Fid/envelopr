@@ -16,9 +16,11 @@ type File {
 }
 
 type Query {
+    User(id: ID!): User!
     files(owner: ID!): [File!]!
     file(fileID: ID!): File
     sharedFiles: [File!]!
+    sharedUsers(fileID: ID!): [User!]!
     myFiles: [File!]!
     publicFiles: [File!]!
     publicFile(fileID: ID!): File

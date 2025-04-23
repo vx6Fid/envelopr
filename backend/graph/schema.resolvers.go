@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"github.com/vxF6id/envelopr/backend/auth"
 	"github.com/vxF6id/envelopr/backend/graph/model"
 	"golang.org/x/crypto/bcrypt"
@@ -465,6 +466,24 @@ func (r *mutationResolver) RevokeShare(ctx context.Context, fileID string, userI
 	return true, nil
 }
 
+// User is the resolver for the User field.
+func (r *queryResolver) User(ctx context.Context, id string) (*model.User, error) {
+	userUUID, err := uuid.Parse(id)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user UUID")
+	}
+
+	var user model.User
+	err = r.DB.QueryRow(`
+        SELECT id, usernamename, created_at
+        FROM users
+        WHERE id = $1`, userUUID).Scan(&user.ID, &user.Username, &user.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
 // Files is the resolver for the files field.
 func (r *queryResolver) Files(ctx context.Context, owner string) ([]*model.File, error) {
 	ownerUUID, err := uuid.Parse(owner)
@@ -583,6 +602,64 @@ func (r *queryResolver) SharedFiles(ctx context.Context) ([]*model.File, error) 
 		files = append(files, &file)
 	}
 	return files, nil
+}
+
+// SharedUsers is the resolver for the sharedUsers field.
+func (r *queryResolver) SharedUsers(ctx context.Context, fileID string) ([]*model.User, error) {
+	// Query to get user IDs from the shared_files table
+	rows, err := r.DB.QueryContext(ctx, `
+        SELECT user_id
+        FROM shared_files
+        WHERE file_id = $1
+    `, fileID)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching shared user IDs: %w", err)
+	}
+	defer rows.Close()
+
+	var userIDs []string
+	for rows.Next() {
+		var uid string
+		if err := rows.Scan(&uid); err != nil {
+			return nil, fmt.Errorf("error scanning user_id: %w", err)
+		}
+		userIDs = append(userIDs, uid)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	if len(userIDs) == 0 {
+		return []*model.User{}, nil // no users shared
+	}
+
+	// Fetch user details based on the collected user IDs
+	query := `
+        SELECT id, username, created_at
+        FROM users
+        WHERE id = ANY($1)
+    `
+	usersRows, err := r.DB.QueryContext(ctx, query, pq.Array(userIDs))
+	if err != nil {
+		return nil, fmt.Errorf("error fetching users: %w", err)
+	}
+	defer usersRows.Close()
+
+	var users []*model.User
+	for usersRows.Next() {
+		var u model.User
+		if err := usersRows.Scan(&u.ID, &u.Username, &u.CreatedAt); err != nil {
+			return nil, fmt.Errorf("error scanning user: %w", err)
+		}
+		users = append(users, &u)
+	}
+
+	if err := usersRows.Err(); err != nil {
+		return nil, fmt.Errorf("user row iteration error: %w", err)
+	}
+
+	return users, nil
 }
 
 // MyFiles is the resolver for the myFiles field.
