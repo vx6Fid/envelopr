@@ -300,7 +300,7 @@ export default function FilePage() {
             Private file
           </h3>
           <p className="mt-1 text-sm text-gray-500">
-            This file isn't shared with anyone
+            {"This file isn't shared with anyone"}
           </p>
           <button
             // onClick={() => setShowShareModal(true)}
