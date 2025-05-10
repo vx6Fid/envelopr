@@ -133,7 +133,7 @@ export default function FilePage() {
             <div>
               <h3 className="font-medium text-gray-900">Access Restricted</h3>
               <p className="text-sm text-gray-500 mt-1">
-                File not found or you don't have permission to view it
+                {"File not found or you don't have permission to view it"}
               </p>
             </div>
           </div>

@@ -91,7 +91,7 @@ export default function DashboardPage() {
     if (!selectedFile || !username) return;
 
     try {
-      const { data } = await shareFile({
+      await shareFile({
         variables: {
           fileID: selectedFile,
           username,
