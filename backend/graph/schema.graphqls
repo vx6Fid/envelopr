@@ -3,6 +3,7 @@ type User {
     username: String!
     createdAt: String!
     password_hash: String!
+    friends: [User!]!
 }
 
 type File {
@@ -19,6 +20,9 @@ type Query {
     User(id: ID!): User!
     files(owner: ID!): [File!]!
     file(fileID: ID!): File
+    friendsList: [User!]!
+    friendRequests(userID: ID!): Boolean! # Friend request sent to user
+    friendRequestStatus(userID: ID!): Boolean! # Friend request status
     sharedFiles: [File!]!
     sharedUsers(fileID: ID!): [User!]!
     myFiles: [File!]!
@@ -38,6 +42,7 @@ type Mutation {
     updateFileContent(id: ID!, content: String!): File!
     deleteFile(fileID: ID!): Boolean!
     shareFile(fileID: ID!, userID: ID!): Boolean!
+    shareFileUsername(fileID: ID!, username: String!): Boolean!
     makeFilePublic(fileID: ID!): Boolean!
     revokeShare(fileID: ID!, userID: ID!): Boolean!
 }

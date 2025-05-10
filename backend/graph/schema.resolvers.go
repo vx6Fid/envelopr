@@ -382,6 +382,71 @@ func (r *mutationResolver) ShareFile(ctx context.Context, fileID string, userID 
 	return true, nil
 }
 
+// ShareFileUsername is the resolver for the shareFileUsername field.
+func (r *mutationResolver) ShareFileUsername(ctx context.Context, fileID string, username string) (bool, error) {
+	currentUserID, ok := auth.ForContext(ctx)
+	if !ok {
+		return false, fmt.Errorf("authentication required")
+	}
+
+	fileUUID, err := uuid.Parse(fileID)
+	if err != nil {
+		return false, fmt.Errorf("invalid file ID")
+	}
+
+	// Verify if the current user is the owner of the file
+	var isOwner bool
+	err = r.DB.QueryRow(`
+				SELECT EXISTS (
+				SELECT 1 FROM files
+				WHERE id = $1 AND owner = $2
+				)`, fileUUID, currentUserID).Scan(&isOwner)
+	if err != nil || !isOwner {
+		return false, fmt.Errorf("unauthorized: only owner can share the file")
+	}
+
+	// Check if the user exists
+	var userExists bool
+	err = r.DB.QueryRow(`
+				SELECT EXISTS (
+				SELECT 1 FROM users
+				WHERE username = $1
+				)`, username).Scan(&userExists)
+	if err != nil || !userExists {
+		return false, fmt.Errorf("user does not exist")
+	}
+
+	// Get the user ID from the username
+	var userUUID uuid.UUID
+	err = r.DB.QueryRow(`
+				SELECT id FROM users
+				WHERE username = $1`, username).Scan(&userUUID)
+	if err != nil {
+		return false, fmt.Errorf("failed to get user ID")
+	}
+	// Check if the file is already shared with the user
+	var alreadyShared bool
+	err = r.DB.QueryRow(`
+				SELECT EXISTS (
+				SELECT 1 FROM shared_file
+				WHERE file_id = $1 AND user_id = $2
+				)`, fileUUID, userUUID).Scan(&alreadyShared)
+	if err != nil {
+		return false, fmt.Errorf("failed to check if file is already shared")
+	}
+	if alreadyShared {
+		return false, fmt.Errorf("file already shared with this user")
+	}
+	// Insert the share record
+	_, err = r.DB.Exec(`
+				INSERT INTO shared_file (file_id, user_id)
+				VALUES ($1, $2)`, fileUUID, userUUID)
+	if err != nil {
+		return false, fmt.Errorf("failed to share file")
+	}
+	return true, nil
+}
+
 // MakeFilePublic is the resolver for the makeFilePublic field.
 func (r *mutationResolver) MakeFilePublic(ctx context.Context, fileID string) (bool, error) {
 	currentUserID, ok := auth.ForContext(ctx)
@@ -568,6 +633,21 @@ func (r *queryResolver) File(ctx context.Context, fileID string) (*model.File, e
 	return &file, nil
 }
 
+// FriendsList is the resolver for the friendsList field.
+func (r *queryResolver) FriendsList(ctx context.Context) ([]*model.User, error) {
+	panic(fmt.Errorf("not implemented: FriendsList - friendsList"))
+}
+
+// FriendRequests is the resolver for the friendRequests field.
+func (r *queryResolver) FriendRequests(ctx context.Context, userID string) (bool, error) {
+	panic(fmt.Errorf("not implemented: FriendRequests - friendRequests"))
+}
+
+// FriendRequestStatus is the resolver for the friendRequestStatus field.
+func (r *queryResolver) FriendRequestStatus(ctx context.Context, userID string) (bool, error) {
+	panic(fmt.Errorf("not implemented: FriendRequestStatus - friendRequestStatus"))
+}
+
 // SharedFiles is the resolver for the sharedFiles field.
 func (r *queryResolver) SharedFiles(ctx context.Context) ([]*model.File, error) {
 	userID, ok := auth.ForContext(ctx)
@@ -609,7 +689,7 @@ func (r *queryResolver) SharedUsers(ctx context.Context, fileID string) ([]*mode
 	// Query to get user IDs from the shared_files table
 	rows, err := r.DB.QueryContext(ctx, `
         SELECT user_id
-        FROM shared_files
+        FROM shared_file
         WHERE file_id = $1
     `, fileID)
 	if err != nil {

@@ -2,7 +2,7 @@
 import { gql } from "@apollo/client";
 
 export const LOGIN_USER = gql`
-  mutation Login($username: String!, $password: String!) {
+  mutation login($username: String!, $password: String!) {
     login(username: $username, password: $password) {
       token
       tokenExpires
@@ -34,9 +34,9 @@ export const DELETE_FILE = gql`
   }
 `;
 
-export const SHARE_FILE = gql`
-  mutation ShareFile($fileID: ID!, $userID: ID!) {
-    shareFile(fileID: $fileID, userID: $userID)
+export const SHARE_FILE_USERNAME = gql`
+  mutation ShareFileUsernameMutation($fileID: ID!, $username: String!) {
+    shareFileUsername(fileID: $fileID, username: $username)
   }
 `;
 

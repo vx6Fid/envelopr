@@ -36,8 +36,9 @@ type RegisterInput struct {
 }
 
 type User struct {
-	ID           string `json:"id"`
-	Username     string `json:"username"`
-	CreatedAt    string `json:"createdAt"`
-	PasswordHash string `json:"password_hash"`
+	ID           string  `json:"id"`
+	Username     string  `json:"username"`
+	CreatedAt    string  `json:"createdAt"`
+	PasswordHash string  `json:"password_hash"`
+	Friends      []*User `json:"friends"`
 }

@@ -8,10 +8,9 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// Configuration should come from environment/config
 var (
 	jwtKey      = []byte("SeCoGoD")
-	tokenExpiry = 24 * time.Hour
+	tokenExpiry = 7 * 24 * time.Hour
 )
 
 type Claims struct {
@@ -30,8 +29,8 @@ func GenerateToken(userID string) (string, error) {
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(tokenExpiry)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
-			Issuer:    "your-app-name",       // Good practice
-			Subject:   "user-authentication", // Good practice
+			Issuer:    "Envelopr",
+			Subject:   "Envelopr User",
 		},
 	}
 
